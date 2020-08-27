@@ -9,10 +9,6 @@ extern "C"
     #include <libavformat/avformat.h>
 }
 
-int encoded_pkt_counter = 0;
-
-
-
 static void encode(AVCodecContext *ctx, AVFrame *frame, AVPacket *pkt, AVFormatContext* adts_container_ctx)
 {
     int ret = 0; 
@@ -43,10 +39,6 @@ static void encode(AVCodecContext *ctx, AVFrame *frame, AVPacket *pkt, AVFormatC
         {
             printf("Error calling av_write_frame() (error '%s')\n");
         }
-        else
-        {
-            printf( "Encoded AAC packet %d, size=%d\n", encoded_pkt_counter++, pkt->size);
-        }
         
         av_packet_unref(pkt);
     }
@@ -54,7 +46,7 @@ static void encode(AVCodecContext *ctx, AVFrame *frame, AVPacket *pkt, AVFormatC
 
 static int write_adts_muxed_data(void *opaque, uint8_t *adts_data, int size)
 {
-    printf("write_adts_muxed_data\n");
+    //printf("write_adts_muxed_data\n");
     FILE *f = (FILE *)opaque;
     fwrite(adts_data, 1, size, f);
     return size;
@@ -62,9 +54,10 @@ static int write_adts_muxed_data(void *opaque, uint8_t *adts_data, int size)
 
 int getAudio(float t, float* L, float* R)
 {
-    float Hz = 440;
-    *L = sin(t*2*M_PI*Hz);
-    *R = sin(t*2*M_PI*Hz);
+    float Hz = 4400.0;
+    *L = sin(t*2*M_PI*Hz)*0.8;
+    *R = -sin(t*2*M_PI*Hz)*0.8;
+    while(t>M_PI*2.0)t-=2*M_PI;
 }
 
 int main(int argc, char **argv)
@@ -79,12 +72,12 @@ int main(int argc, char **argv)
     };
     
     AVCodecContext  *audio_codec_context = avcodec_alloc_context3(audio_codec);
-    
-    audio_codec_context->bit_rate = 129000;
+    audio_codec_context->bit_rate = 100000;
     audio_codec_context->sample_fmt = AV_SAMPLE_FMT_FLTP;
     audio_codec_context->sample_rate = 48000;
     audio_codec_context->channel_layout = AV_CH_LAYOUT_STEREO;
     audio_codec_context->channels = 2;
+    
     if (avcodec_open2(audio_codec_context, audio_codec, nullptr) < 0)
     {
         printf("Could not open audioCodecContext\n");
@@ -93,7 +86,6 @@ int main(int argc, char **argv)
     
     FILE* encoded_audio_file = fopen("AACinADTS.aac", "wb");
     
-
     AVPacket* pkt = av_packet_alloc();
     if(!pkt)
     {
@@ -108,10 +100,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "Could not allocate audio frame\n");
         exit(1);
     }
-    frame->nb_samples =     audio_codec_context->frame_size;
-    frame->format =         audio_codec_context->sample_fmt;
-    frame->channel_layout = audio_codec_context->channel_layout;
-    frame->sample_rate    = audio_codec_context->sample_rate;
+    frame->nb_samples       = audio_codec_context->frame_size;
+    frame->format           = audio_codec_context->sample_fmt;
+    frame->channel_layout   = audio_codec_context->channel_layout;
+    frame->channels         = audio_codec_context->channels;
+    frame->sample_rate      = audio_codec_context->sample_rate;
 
     ret = av_frame_get_buffer(frame, 0);
     if (ret < 0) {
@@ -168,9 +161,9 @@ int main(int argc, char **argv)
     float tincr = 1.0 / audio_codec_context->sample_rate;
 
     //Encode frames
-    for(int i=0;i<100;i++) 
+    for(int i=0;i<1000;i++) 
     {
-        if(i % 10 == 0)
+        if(i % 100 == 0)
         {
             printf("Sample: %d\n", i);
         }
@@ -180,11 +173,13 @@ int main(int argc, char **argv)
         {
             exit(1);
         }
-
+        
         //Make sound
         for (int j = 0; j < audio_codec_context->frame_size; j++) 
         {
-            getAudio(t, &((float*)frame->data[0])[j], &((float*)frame->data[1])[j]);             
+            getAudio(t, 
+                &((float*)frame->data[0])[j], 
+                &((float*)frame->data[1])[j]);             
             t += tincr;
         }
         encode(audio_codec_context, frame, pkt, adts_container_ctx);
