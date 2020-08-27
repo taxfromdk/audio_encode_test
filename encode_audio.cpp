@@ -9,39 +9,30 @@ extern "C"
     #include <libavformat/avformat.h>
 }
 
-static void encode(AVCodecContext *ctx, AVFrame *frame, AVPacket *pkt, AVFormatContext* adts_container_ctx)
+static int encode(AVCodecContext *ctx, AVFrame *frame, AVPacket *pkt, AVFormatContext* adts_container_ctx)
 {
     int ret = 0; 
 
-    /* send the frame for encoding */
-    ret = avcodec_send_frame(ctx, frame);
-    if (ret < 0) {
-        fprintf(stderr, "Error sending the frame to the encoder\n");
-        exit(1);
+    //Send packet if any
+    if(frame != NULL)
+    {
+        /* send the frame for encoding */
+        ret = avcodec_send_frame(ctx, frame);
     }
 
-    /* read all the available output packets (in general there may be any
-     * number of them */
-    if(ret == 0) 
+    //Recieve packet
+    
+    if (avcodec_receive_packet(ctx, pkt) == 0)
     {
-        ret = avcodec_receive_packet(ctx, pkt);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-        {
-            return;
-        }        
-        else if (ret < 0) {
-            fprintf(stderr, "Error encoding audio frame\n");
-            exit(1);
-        }
-        
-        //Send AAC to ADTS muxer
-        if (av_write_frame(adts_container_ctx, pkt) < 0) 
-        {
-            printf("Error calling av_write_frame() (error '%s')\n");
-        }
-        
-        av_packet_unref(pkt);
+        av_write_frame(adts_container_ctx, pkt);
+        ret = 1;
     }
+    else
+    {
+        ret = 0;
+    }        
+    av_packet_unref(pkt);
+    return ret;
 }
 
 static int write_adts_muxed_data(void *opaque, uint8_t *adts_data, int size)
@@ -77,6 +68,11 @@ int main(int argc, char **argv)
     audio_codec_context->sample_rate = 48000;
     audio_codec_context->channel_layout = AV_CH_LAYOUT_STEREO;
     audio_codec_context->channels = 2;
+    AVRational rational;
+    rational.num = 1;
+    rational.den = 48000;
+    audio_codec_context->time_base = rational;
+
     
     if (avcodec_open2(audio_codec_context, audio_codec, nullptr) < 0)
     {
@@ -161,7 +157,7 @@ int main(int argc, char **argv)
     float tincr = 1.0 / audio_codec_context->sample_rate;
 
     //Encode frames
-    for(int i=0;i<1000;i++) 
+    for(int i=0;i<1024;i++) 
     {
         if(i % 100 == 0)
         {
@@ -174,6 +170,8 @@ int main(int argc, char **argv)
             exit(1);
         }
         
+        frame->pts = t * 48000;
+
         //Make sound
         for (int j = 0; j < audio_codec_context->frame_size; j++) 
         {
@@ -184,7 +182,14 @@ int main(int argc, char **argv)
         }
         encode(audio_codec_context, frame, pkt, adts_container_ctx);
     }
-    encode(audio_codec_context, NULL, pkt, adts_container_ctx);
+    while(1)
+    {
+        if(encode(audio_codec_context, NULL, pkt, adts_container_ctx) == 0)
+        {
+            break;
+        }
+    }
+    
     
     //File
     fclose(encoded_audio_file);
