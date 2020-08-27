@@ -20,13 +20,10 @@ encode_audio: encode_audio.cpp
 
 
 test: encode_audio
-	./encode_audio mp3
-	ffplay raw.mp3 -autoexit
-	./encode_audio aac
-	ffplay raw.aac -autoexit
-
+	./encode_audio
+	ffplay AACinADTS.aac -autoexit
 	
 clean:
-	rm -rf encode_audio *.aac *.mp3
+	rm -rf encode_audio *.aac
 
 .PHONY: clean test
